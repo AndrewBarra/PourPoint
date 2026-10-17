@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PourPoint</title>
+  <meta name="description" content="Log and rate cocktail bars, pinned on a map.">
+  <meta name="theme-color" content="#2a1420">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PourPoint">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"> PourPoint</h1>
+    <div class="search" id="search">
+      <label class="visually-hidden" for="searchInput">Search for a bar</label>
+      <input id="searchInput" type="search" placeholder="Search for a bar…" autocomplete="off"
+             role="combobox" aria-expanded="false" aria-controls="searchResults" aria-autocomplete="list">
+      <ul id="searchResults" class="search-results" role="listbox" hidden></ul>
+    </div>
+  </header>
+
+  <main class="layout">
+    <div id="map" class="map" aria-label="Map of saved bars"></div>
+
+    <aside class="panel" id="panel">
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" data-tab="bars" aria-selected="true">My bars</button>
+        <button role="tab" class="tab" data-tab="drinks" aria-selected="false">Top drinks</button>
+        <button role="tab" class="tab" data-tab="stats" aria-selected="false">Stats</button>
+      </nav>
+
+      <section class="tab-panel" data-panel="bars">
+        <div class="list-controls">
+          <input id="barFilter" type="search" placeholder="Filter by name" aria-label="Filter bars by name">
+          <select id="barSort" aria-label="Sort bars">
+            <option value="score">Top rated</option>
+            <option value="name">Name</option>
+            <option value="recent">Most recent</option>
+          </select>
+        </div>
+        <ul id="barList" class="card-list"></ul>
+      </section>
+
+      <section class="tab-panel" data-panel="drinks" hidden>
+        <ul id="drinkList" class="card-list"></ul>
+      </section>
+
+      <section class="tab-panel" data-panel="stats" hidden>
+        <div id="stats" class="stats"></div>
+        <h2 class="section-title">Backup</h2>
+        <p class="muted small">Your data lives only in this browser. Export a backup file to keep it safe or move it to another device.</p>
+        <div class="button-row">
+          <button id="exportBtn" class="btn">Export backup</button>
+          <label class="btn">Import backup<input id="importInput" type="file" accept="application/json,.json" hidden></label>
+        </div>
+        <p id="persistNote" class="muted small"></p>
+      </section>
+    </aside>
+
+    <section id="barView" class="bar-view" hidden aria-live="polite"></section>
+  </main>
+
+  <div id="moveBanner" class="move-banner" hidden>
+    <span>Drag the pin to the right spot.</span>
+    <button id="moveCancel" class="btn">Cancel</button>
+    <button id="moveDone" class="btn btn-primary">Done</button>
+  </div>
+
+  <dialog id="manualDialog" class="dialog">
+    <form id="manualForm" method="dialog" novalidate>
+      <h2>Add a bar yourself</h2>
+      <label>Name <input name="name" required maxlength="120"></label>
+      <label>Street <input name="street" maxlength="160" autocomplete="street-address" placeholder="123 Main St"></label>
+      <div class="field-row">
+        <label class="grow">City <input name="city" required maxlength="80" autocomplete="address-level2"></label>
+        <label class="state">State <input name="state" maxlength="40" autocomplete="address-level1" placeholder="NY"></label>
+      </div>
+      <label class="zip">ZIP <input name="postcode" maxlength="10" inputmode="numeric" autocomplete="postal-code"></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="button" class="btn" data-center hidden>Save at map center</button>
+        <button type="submit" class="btn btn-primary">Save bar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="drinkDialog" class="dialog">
+    <form id="drinkForm" method="dialog" novalidate>
+      <h2 data-title>Add a drink</h2>
+      <label>Name <input name="name" required maxlength="120"></label>
+      <div class="field">
+        <span class="field-label">Rating</span>
+        <div data-rating></div>
+      </div>
+      <div class="field-row">
+        <label class="grow">Base spirit
+          <select name="spirit">
+            <option value="">—</option>
+          </select>
+        </label>
+        <label class="price">Price ($) <input name="price" type="number" min="0" step="0.01" inputmode="decimal"></label>
+      </div>
+      <label>Notes <textarea name="notes" rows="3" maxlength="2000"></textarea></label>
+      <div class="field">
+        <span class="field-label">Photos</span>
+        <div class="thumbs" data-thumbs></div>
+        <label class="btn btn-small">Add photos<input type="file" accept="image/*" multiple hidden data-photo-input></label>
+      </div>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-delete hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save drink</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="viewer" class="viewer" aria-label="Photo viewer">
+    <img alt="">
+    <button class="viewer-btn viewer-close" aria-label="Close">✕</button>
+    <button class="viewer-btn viewer-prev" aria-label="Previous photo">‹</button>
+    <button class="viewer-btn viewer-next" aria-label="Next photo">›</button>
+    <span class="viewer-count"></span>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
