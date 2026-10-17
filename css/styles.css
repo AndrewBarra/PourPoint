@@ -138,6 +138,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .search-error { color: var(--danger); }
 .search-add { border-top: 1px solid var(--border); color: var(--brand); }
 
+/* Google requires its attribution inline with search results. */
+.search-attrib {
+  padding: 4px 14px 6px;
+  text-align: right;
+  font: 500 0.75rem/1.2 Roboto, Arial, sans-serif;
+  color: var(--muted);
+}
+
 .saved-tag {
   font-size: 0.7rem;
   font-weight: 600;
@@ -218,9 +226,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .tab {
   flex: 1;
-  padding: 12px 8px;
+  padding: 12px 4px;
   border: 0;
   border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  font-size: 0.95rem;
   background: none;
   cursor: pointer;
   font-weight: 600;
@@ -434,6 +444,9 @@ textarea { resize: vertical; width: 100%; }
 }
 
 .section-title { margin: 20px 0 8px; font-size: 1.05rem; }
+.section-title.first { margin-top: 4px; }
+.key-form .field { margin-top: 4px; }
+.key-form input { font-family: ui-monospace, monospace; }
 
 .ratings { display: flex; flex-direction: column; gap: 10px; }
 .rating-label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; }

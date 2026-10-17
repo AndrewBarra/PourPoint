@@ -36,6 +36,7 @@
         <button role="tab" class="tab" data-tab="bars" aria-selected="true">My bars</button>
         <button role="tab" class="tab" data-tab="drinks" aria-selected="false">Top drinks</button>
         <button role="tab" class="tab" data-tab="stats" aria-selected="false">Stats</button>
+        <button role="tab" class="tab" data-tab="settings" aria-selected="false">Settings</button>
       </nav>
 
       <section class="tab-panel" data-panel="bars">
@@ -56,6 +57,23 @@
 
       <section class="tab-panel" data-panel="stats" hidden>
         <div id="stats" class="stats"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="settings" hidden>
+        <h2 class="section-title first">Bar search</h2>
+        <p class="muted small">Searches use OpenStreetMap by default. Add a Google Places API key to search Google's listings instead; it finds many more bars. The key is stored only in this browser and isn't included in backups.</p>
+        <form id="googleKeyForm" class="key-form" autocomplete="off">
+          <label class="field">Google Places API key
+            <input id="googleKeyInput" type="password" spellcheck="false" autocapitalize="off" placeholder="AIza…">
+          </label>
+          <div class="button-row">
+            <button type="submit" class="btn btn-primary btn-small">Save key</button>
+            <button type="button" id="googleKeyRemove" class="btn btn-small">Remove key</button>
+          </div>
+        </form>
+        <p id="searchSourceNote" class="muted small"></p>
+        <p class="muted small"><a href="https://github.com/AndrewBarra/PourPoint#google-places-search-optional" target="_blank" rel="noopener">How to get a key</a></p>
+
         <h2 class="section-title">Backup</h2>
         <p class="muted small">Your data lives only in this browser. Export a backup file to keep it safe or move it to another device.</p>
         <div class="button-row">

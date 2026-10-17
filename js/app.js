@@ -1,6 +1,6 @@
 // PourPoint UI: map, search, bar pages, drinks, lists, stats and backup.
 import * as db from './db.js';
-import { searchBars, geocodeAddress, LookupError } from './api.js';
+import { searchBars, searchGooglePlaces, googlePlaceAddress, geocodeAddress, LookupError } from './api.js';
 import { resizePhotos } from './photos.js';
 
 const { CATEGORIES, SPIRITS, overallScore } = db;
@@ -332,9 +332,71 @@ async function refresh() {
 
 const barById = (id) => state.bars.find((b) => b.id === id);
 
+// ---------- Settings ----------
+
+const GOOGLE_KEY_STORAGE = 'pourpoint.googlePlacesKey';
+
+function getGoogleKey() {
+  try {
+    return localStorage.getItem(GOOGLE_KEY_STORAGE) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setGoogleKey(key) {
+  try {
+    if (key) localStorage.setItem(GOOGLE_KEY_STORAGE, key);
+    else localStorage.removeItem(GOOGLE_KEY_STORAGE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderSearchSource() {
+  const key = getGoogleKey();
+  $('#googleKeyInput').value = key;
+  $('#googleKeyRemove').hidden = !key;
+  $('#searchSourceNote').textContent = key
+    ? 'Searching with Google Places. If Google fails, OpenStreetMap is used instead.'
+    : 'Searching with OpenStreetMap.';
+}
+
+function setupSettings() {
+  $('#googleKeyForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const key = $('#googleKeyInput').value.trim();
+    if (!key) { toast('Paste a key first.', { error: true }); return; }
+    if (!setGoogleKey(key)) { toast('Couldn\'t save the key. This browser is blocking storage.', { error: true }); return; }
+    renderSearchSource();
+    toast('Key saved. Searches now use Google.');
+  });
+  $('#googleKeyRemove').addEventListener('click', () => {
+    setGoogleKey('');
+    renderSearchSource();
+    toast('Key removed. Searches use OpenStreetMap.');
+  });
+  renderSearchSource();
+}
+
 // ---------- Search ----------
 
-const search = { timer: null, controller: null, results: [], active: -1, status: '' };
+const search = {
+  timer: null,
+  controller: null,
+  results: [],
+  active: -1,
+  status: '',
+  source: 'osm', // which service produced `results`
+  notice: '', // e.g. "Google failed, showing OpenStreetMap results"
+  sessionToken: null, // groups Google autocomplete calls for billing
+  busy: false,
+};
+
+function resetSearchSession() {
+  search.sessionToken = null;
+}
 
 function setupSearch() {
   const input = $('#searchInput');
@@ -347,7 +409,8 @@ function setupSearch() {
       search.controller?.abort();
       search.results = [];
       search.status = '';
-      if (!q) { closeDropdown(); return; }
+      search.notice = '';
+      if (!q) { resetSearchSession(); closeDropdown(); return; }
       renderDropdown();
       return;
     }
@@ -401,10 +464,26 @@ async function runSearch(q) {
   search.status = 'loading';
   renderDropdown();
   const center = map.getCenter();
+  const where = { lat: center.lat, lon: center.lng, signal: controller.signal };
+  const key = getGoogleKey();
+  search.notice = '';
   try {
-    const results = await searchBars(q, { lat: center.lat, lon: center.lng, signal: controller.signal });
+    let results = null;
+    let source = 'osm';
+    if (key) {
+      search.sessionToken ||= db.newId();
+      try {
+        results = await searchGooglePlaces(q, { ...where, key, sessionToken: search.sessionToken });
+        source = 'google';
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        search.notice = `${err instanceof LookupError ? err.message : 'Google search failed.'} Showing OpenStreetMap results instead.`;
+      }
+    }
+    if (!results) results = await searchBars(q, where);
     if (controller.signal.aborted) return;
     search.results = results;
+    search.source = source;
     search.status = results.length ? '' : 'empty';
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -417,8 +496,8 @@ async function runSearch(q) {
 function renderDropdown() {
   const input = $('#searchInput');
   const list = $('#searchResults');
-  const saved = new Set(state.bars.map((b) => b.osmId).filter(Boolean));
-  let html = '';
+  const saved = new Set(state.bars.flatMap((b) => [b.osmId, b.googlePlaceId]).filter(Boolean));
+  let html = search.notice ? `<li class="search-status search-error">${esc(search.notice)}</li>` : '';
   if (search.status === 'loading') {
     html += '<li class="search-status">Searching…</li>';
   } else if (search.status === 'empty') {
@@ -430,9 +509,10 @@ function renderDropdown() {
   }
   if (search.status !== 'loading') {
     search.results.forEach((r, i) => {
-      const addr = [r.street, r.city, r.state].filter(Boolean).join(', ');
+      const addr = r.source === 'google' ? r.address : [r.street, r.city, r.state].filter(Boolean).join(', ');
+      const id = r.source === 'google' ? r.placeId : r.osmId;
       html += `<li role="option" class="search-row" data-index="${i}" aria-selected="false">
-          <span class="search-name">${esc(r.name)}${saved.has(r.osmId) ? ' <span class="saved-tag">Saved</span>' : ''}</span>
+          <span class="search-name">${esc(r.name)}${saved.has(id) ? ' <span class="saved-tag">Saved</span>' : ''}</span>
           <span class="search-addr">${esc(addr || 'Address unknown')}</span>
         </li>`;
     });
@@ -440,6 +520,9 @@ function renderDropdown() {
   html += `<li role="option" class="search-row search-add" data-add aria-selected="false">
       <span class="search-name">Can't find it? Add it yourself</span>
     </li>`;
+  if (search.source === 'google' && search.results.length && search.status !== 'loading') {
+    html += '<li class="search-attrib" aria-label="Results from Google Maps">Google Maps</li>';
+  }
   list.innerHTML = html;
   list.hidden = false;
   input.setAttribute('aria-expanded', 'true');
@@ -453,10 +536,14 @@ function closeDropdown() {
 }
 
 async function pickResult(result) {
-  if (!result) return;
+  if (!result || search.busy) return;
   closeDropdown();
   $('#searchInput').value = '';
   search.results = [];
+  if (result.source === 'google') {
+    await pickGoogleResult(result);
+    return;
+  }
   try {
     const existing = await db.findBarByOsmId(result.osmId);
     if (existing) {
@@ -490,17 +577,72 @@ async function pickResult(result) {
   }
 }
 
+/**
+ * Save a Google result. Google supplies the name and address; the pin's
+ * position comes from Nominatim, since Google's terms don't allow showing
+ * Google location data on a non-Google map.
+ */
+async function pickGoogleResult(result) {
+  const sessionToken = search.sessionToken;
+  resetSearchSession();
+  try {
+    const existing = await db.findBarByGooglePlaceId(result.placeId);
+    if (existing) {
+      toast(`You already saved ${existing.name}.`);
+      openBar(existing.id, { fly: true });
+      return;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  search.busy = true;
+  toast(`Finding ${result.name} on the map…`);
+  let address = null;
+  try {
+    address = await googlePlaceAddress(result.placeId, { key: getGoogleKey(), sessionToken });
+    const fields = { name: result.name, street: address.street, city: address.city, state: address.state, postcode: address.postcode };
+    const location = fields.city ? await geocodeAddress(fields) : null;
+    if (!location) {
+      openManualDialog(fields, {
+        googlePlaceId: result.placeId,
+        error: 'We couldn\'t find this address on OpenStreetMap. Check it, or save it at the map\'s center and drag the pin into place.',
+      });
+      return;
+    }
+    if (location.approximate) location.reason = 'city';
+    await saveManualBar(fields, location, { googlePlaceId: result.placeId });
+    toast(location.approximate ? 'Saved. Exact address not found, so the pin is at the city center.' : `Saved ${fields.name}.`);
+  } catch (err) {
+    if (!(err instanceof LookupError)) console.error(err);
+    const message = err instanceof LookupError ? err.message : 'Something went wrong saving this bar.';
+    if (address) {
+      openManualDialog({ name: result.name, ...address }, { googlePlaceId: result.placeId, error: `${message} You can save it at the map's center instead.` });
+    } else {
+      toast(message, { error: true });
+    }
+  } finally {
+    search.busy = false;
+  }
+}
+
 // ---------- Add a bar manually ----------
 
-function openManualDialog(name = '') {
+let manualExtra = {}; // extra fields saved with a manual bar (e.g. googlePlaceId)
+
+/** `prefill` is a name string, or an object with name/street/city/state/postcode. */
+function openManualDialog(prefill = '', { googlePlaceId = null, error = '' } = {}) {
   const dialog = $('#manualDialog');
   const form = $('#manualForm');
+  const fields = typeof prefill === 'string' ? { name: prefill } : prefill;
   form.reset();
-  form.elements.name.value = name;
-  showFormError(form, '');
-  $('[data-center]', form).hidden = true;
+  for (const name of ['name', 'street', 'city', 'state', 'postcode']) {
+    form.elements[name].value = fields[name] || '';
+  }
+  manualExtra = googlePlaceId ? { googlePlaceId } : {};
+  showFormError(form, error);
+  $('[data-center]', form).hidden = !error;
   dialog.showModal();
-  (name ? form.elements.street : form.elements.name).focus();
+  (fields.name ? form.elements.street : form.elements.name).focus();
 }
 
 function showFormError(form, message) {
@@ -514,10 +656,12 @@ function readManualForm(form) {
   return { name: v('name'), street: v('street'), city: v('city'), state: v('state'), postcode: v('postcode') };
 }
 
-async function saveManualBar(fields, location) {
+async function saveManualBar(fields, location, extra = manualExtra) {
   const bar = await db.saveBar({
     id: db.newId(),
     osmId: null,
+    googlePlaceId: null,
+    ...extra,
     ...fields,
     lat: location.lat,
     lon: location.lon,
@@ -1119,6 +1263,7 @@ async function init() {
   setupDrinkDialog();
   setupPanel();
   setupBackup();
+  setupSettings();
   $('#moveDone').addEventListener('click', () => endMovePin(true));
   $('#moveCancel').addEventListener('click', () => endMovePin(false));
 
