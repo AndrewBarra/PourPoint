@@ -1,7 +1,7 @@
 // IndexedDB storage: bars, drinks and photos all live in the browser.
 
 const DB_NAME = 'pourpoint';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const CATEGORIES = [
   { key: 'drinks', label: 'Drinks' },
@@ -21,10 +21,11 @@ function open() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains('bars')) {
-        const bars = db.createObjectStore('bars', { keyPath: 'id' });
-        bars.createIndex('osmId', 'osmId', { unique: false });
-      }
+      const bars = db.objectStoreNames.contains('bars')
+        ? req.transaction.objectStore('bars')
+        : db.createObjectStore('bars', { keyPath: 'id' });
+      if (!bars.indexNames.contains('osmId')) bars.createIndex('osmId', 'osmId', { unique: false });
+      if (!bars.indexNames.contains('googlePlaceId')) bars.createIndex('googlePlaceId', 'googlePlaceId', { unique: false });
       if (!db.objectStoreNames.contains('drinks')) {
         const drinks = db.createObjectStore('drinks', { keyPath: 'id' });
         drinks.createIndex('barId', 'barId', { unique: false });
@@ -96,6 +97,12 @@ export async function findBarByOsmId(osmId) {
   if (!osmId) return null;
   const index = (await store('bars')).index('osmId');
   return (await promisify(index.get(osmId))) || null;
+}
+
+export async function findBarByGooglePlaceId(placeId) {
+  if (!placeId) return null;
+  const index = (await store('bars')).index('googlePlaceId');
+  return (await promisify(index.get(placeId))) || null;
 }
 
 export async function saveBar(bar) {
